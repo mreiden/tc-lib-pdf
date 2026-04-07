@@ -1168,8 +1168,17 @@ abstract class Text extends \Com\Tecnick\Pdf\Cell
             return $txt;
         }
 
-        $unistr = \implode('', $this->uniconv->ordArrToChrArr($ordarr));
-        $txt = $this->uniconv->toUTF16BE($unistr);
+        $fontKey = $this->font->getCurrentFontKey();
+        $fdt = $this->font->getFont($fontKey);
+        if ($fdt['subset']) {
+            $txt = '';
+            foreach ($ordarr as $ord) {
+                $txt .= \pack('n', $this->font->addSubsetChar($fontKey, $ord));
+            }
+        } else {
+            $unistr = \implode('', $this->uniconv->ordArrToChrArr($ordarr));
+            $txt = $this->uniconv->toUTF16BE($unistr);
+        }
         $txt = $this->encrypt->escapeString($txt);
 
         if ($pwidth <= 0) {
