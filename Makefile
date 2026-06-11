@@ -29,6 +29,12 @@ VERSION=$(shell cat VERSION)
 # Project release number (packaging build number)
 RELEASE=$(shell cat RELEASE)
 
+# Debian revision cannot be zero; map 0 to 1 for Debian packaging only.
+DEBRELEASE=$(if $(filter 0,$(RELEASE)),1,$(RELEASE))
+
+# RPM release is conventionally >= 1; map 0 to 1 for RPM packaging only.
+RPMRELEASE=$(if $(filter 0,$(RELEASE)),1,$(RELEASE))
+
 # Name of RPM or DEB package
 PKGNAME=php-${OWNER}-${PROJECT}
 
@@ -65,11 +71,20 @@ TARGETDIR=$(CURRENTDIR)target
 # RPM Packaging path (where RPMs will be stored)
 PATHRPMPKG=$(TARGETDIR)/RPM
 
+# RPM local database path (avoid host rpmdb permission issues)
+RPMDBPATH=$(PATHRPMPKG)/.rpmdb
+
 # DEB Packaging path (where DEBs will be stored)
 PATHDEBPKG=$(TARGETDIR)/DEB
 
 # BZ2 Packaging path (where BZ2s will be stored)
 PATHBZ2PKG=$(TARGETDIR)/BZ2
+
+# sed argument for in-place substitutions
+SEDINPLACE=-i
+ifeq ($(shell uname -s),Darwin)
+	SEDINPLACE=-i ''
+endif
 
 # Default port number for the example server
 PORT?=8971
@@ -83,8 +98,8 @@ COMPOSER=$(PHP) -d "apc.enable_cli=0" $(shell which composer)
 # phpDocumentor executable file
 PHPDOC=$(shell which phpDocumentor)
 
-# phpstan version
-PHPSTANVER=2.1.33
+# veraPDF binary path (can be overridden, e.g. make verapdf-ua VERAPDF_BIN=/opt/verapdf/bin/verapdf)
+VERAPDF_BIN?=$(shell command -v verapdf 2>/dev/null)
 
 # --- MAKE TARGETS ---
 
@@ -95,72 +110,53 @@ help:
 	@echo "$(PROJECT) Makefile."
 	@echo "The following commands are available:"
 	@echo ""
-	@echo "  make buildall : Build and test everything from scratch"
-	@echo "  make bz2      : Package the library in a compressed bz2 archive"
-	@echo "  make clean    : Delete the vendor and target directories"
-	@echo "  make codefix  : Fix code style violations"
-	@echo "  make deb      : Build a DEB package for Debian-like Linux distributions"
-	@echo "  make deps     : Download all dependencies"
-	@echo "  make doc      : Generate source code documentation"
-	@echo "  make fonts    : Build default tc-font-mirror fonts via tc-lib-pdf-font"
-	@echo "  make lint     : Test source code for coding standard violations"
-	@echo "  make qa       : Run all tests and reports"
-	@echo "  make report   : Generate various reports"
-	@echo "  make rpm      : Build an RPM package for RedHat-like Linux distributions"
-	@echo "  make server   : Start the development server"
-	@echo "  make test     : Run unit tests"
-	@echo "  make versionup: Increase the version patch number"
+	@awk '/^## /{desc=substr($$0,4)} /^\.PHONY:/{if(NF>1) {target=$$2; if(desc) printf "  make %-15s: %s\n",target,desc; desc=""}}' Makefile
 	@echo ""
-	@echo "To test and build everything from scratch:"
-	@echo "make buildall"
+	@echo "To test and build everything from scratch, use the shortcut:"
+	@echo "    make x"
 	@echo ""
 
 # alias for help target
 .PHONY: all
 all: help
 
-# Full build and test sequence
+# Test and build everything from scratch
 .PHONY: x
 x: buildall
 
-# Full build and test sequence
+## Test and build everything from scratch
 .PHONY: buildall
-buildall: deps
-	cd vendor/tecnickcom/tc-lib-pdf-font/ && make deps fonts
-	$(MAKE) codefix qa bz2 rpm deb
+buildall:
+	$(MAKE) deps format qa bz2 rpm deb
 
-# Package the library in a compressed bz2 archive
+## Package the library in a compressed bz2 archive
 .PHONY: bz2
 bz2:
 	rm -rf $(PATHBZ2PKG)
 	make install DESTDIR=$(PATHBZ2PKG)
 	tar -jcvf $(PATHBZ2PKG)/$(PKGNAME)-$(VERSION)-$(RELEASE).tbz2 -C $(PATHBZ2PKG) $(DATADIR)
 
-# Delete the vendor and target directories
+## Delete the vendor and target directories
 .PHONY: clean
 clean:
 	rm -rf ./vendor $(TARGETDIR)
 
-# Fix code style violations
-.PHONY: codefix
-codefix:
-	./vendor/bin/phpcbf --config-set ignore_non_auto_fixable_on_exit 1
-	./vendor/bin/phpcbf --ignore="\./vendor/" --standard=psr12 src test
-
-# Build a DEB package for Debian-like Linux distributions
+## Build a DEB package for Debian-like Linux distributions
 .PHONY: deb
 deb:
 	rm -rf $(PATHDEBPKG)
-	make install DESTDIR=$(PATHDEBPKG)/$(PKGNAME)-$(VERSION)
+	$(MAKE) install DESTDIR=$(PATHDEBPKG)/$(PKGNAME)-$(VERSION)
 	rm -f $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/$(DOCPATH)LICENSE
 	tar -zcvf $(PATHDEBPKG)/$(PKGNAME)_$(VERSION).orig.tar.gz -C $(PATHDEBPKG)/ $(PKGNAME)-$(VERSION)
 	cp -rf ./resources/debian $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian
-	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed --in-place=.bak "s/~#DATE#~/`date -R`/" {} \;
-	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed --in-place=.bak "s/~#VENDOR#~/$(VENDOR)/" {} \;
-	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed --in-place=.bak "s/~#PROJECT#~/$(PROJECT)/" {} \;
-	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed --in-place=.bak "s/~#PKGNAME#~/$(PKGNAME)/" {} \;
-	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed --in-place=.bak "s/~#VERSION#~/$(VERSION)/" {} \;
-	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed --in-place=.bak "s/~#RELEASE#~/$(RELEASE)/" {} \;
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -name '*.bak' -delete
+	chmod 755 $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/rules
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed $(SEDINPLACE) "s/~#DATE#~/`date -R`/" {} \;
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed $(SEDINPLACE) "s/~#VENDOR#~/$(VENDOR)/" {} \;
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed $(SEDINPLACE) "s/~#PROJECT#~/$(PROJECT)/" {} \;
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed $(SEDINPLACE) "s/~#PKGNAME#~/$(PKGNAME)/" {} \;
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed $(SEDINPLACE) "s/~#VERSION#~/$(VERSION)/" {} \;
+	find $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/ -type f -exec sed $(SEDINPLACE) "s/~#RELEASE#~/$(DEBRELEASE)/" {} \;
 	echo $(LIBPATH) > $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/$(PKGNAME).dirs
 	echo "$(LIBPATH)* $(LIBPATH)" > $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/install
 	echo $(DOCPATH) >> $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/$(PKGNAME).dirs
@@ -169,36 +165,34 @@ ifneq ($(strip $(CONFIGPATH)),)
 	echo $(CONFIGPATH) >> $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/$(PKGNAME).dirs
 	echo "$(CONFIGPATH)* $(CONFIGPATH)" >> $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/install
 endif
-	echo "new-package-should-close-itp-bug" > $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/$(PKGNAME).lintian-overrides
 	cd $(PATHDEBPKG)/$(PKGNAME)-$(VERSION) && debuild -us -uc
 
-# Clean all artifacts and download all dependencies
+## Clean all artifacts and download all dependencies
 .PHONY: deps
 deps: ensuretarget
 	rm -rf ./vendor/*
 	($(COMPOSER) install -vvv --no-interaction)
-	curl --silent --show-error --fail --location --output ./vendor/phpstan.phar https://github.com/phpstan/phpstan/releases/download/${PHPSTANVER}/phpstan.phar \
-	&& chmod +x ./vendor/phpstan.phar
+	curl --proto '=https' --tlsv1.2 --silent --show-error --fail --location https://carthage.software/mago.sh | bash -s -- --install-dir=./vendor/bin
 
-# Generate source code documentation
+## Generate source code documentation
 .PHONY: doc
 doc: ensuretarget
 	rm -rf $(TARGETDIR)/doc
 	$(PHPDOC) -d ./src -t $(TARGETDIR)/doc/
 
-# Create missing target directories for test and build artifacts
+## Create missing target directories for test and build artifacts
 .PHONY: ensuretarget
 ensuretarget:
 	mkdir -p $(TARGETDIR)/test
 	mkdir -p $(TARGETDIR)/report
 	mkdir -p $(TARGETDIR)/doc
 
-# Build default tc-font-mirror fonts via tc-lib-pdf-font
+## Build default tc-font-mirror fonts via tc-lib-pdf-font
 .PHONY: fonts
 fonts:
 	cd vendor/tecnickcom/tc-lib-pdf-font/ && make deps fonts
 
-# Install this application
+## Install this application
 .PHONY: install
 install: uninstall
 	mkdir -p $(PATHINSTBIN)
@@ -215,54 +209,104 @@ install: uninstall
 ifneq ($(strip $(CONFIGPATH)),)
 	mkdir -p $(PATHINSTCFG)
 	touch -c $(PATHINSTCFG)*
-	cp -ru ./resources/${CONFIGPATH}* $(PATHINSTCFG)
+	cp -r ./resources/${CONFIGPATH}* $(PATHINSTCFG)
 	find $(PATHINSTCFG) -type d -exec chmod 755 {} \;
 	find $(PATHINSTCFG) -type f -exec chmod 644 {} \;
 endif
 
-# Test source code for coding standard violations
+## Format the source code
+.PHONY: format
+format:
+	./vendor/bin/mago fmt src test examples
+
+## Analyze and Lint the source code
 .PHONY: lint
 lint:
-	./vendor/bin/phpcbf --config-set ignore_non_auto_fixable_on_exit 1
-	./vendor/bin/phpcs --standard=phpcs.xml
-	./vendor/bin/phpmd src text unusedcode,naming,design --exclude vendor
-	./vendor/bin/phpmd test text unusedcode,naming,design --exclude */vendor/*
-	php -r 'exit((int)version_compare(PHP_MAJOR_VERSION, "7", ">"));' || ./vendor/phpstan.phar analyse
+	./vendor/bin/mago --config ./mago.src.toml analyze src
+	./vendor/bin/mago --config ./mago.test.toml analyze test
+	./vendor/bin/mago --config ./mago.src.toml lint src
+	./vendor/bin/mago --config ./mago.test.toml lint test
 
-# Run all tests and reports
+## Run all tests and reports
 .PHONY: qa
 qa: version ensuretarget lint test report
 
-# Generate various reports
+## Generate various reports
 .PHONY: report
 report: ensuretarget
 	./vendor/bin/pdepend --jdepend-xml=$(TARGETDIR)/report/dependencies.xml --summary-xml=$(TARGETDIR)/report/metrics.xml --jdepend-chart=$(TARGETDIR)/report/dependecies.svg --overview-pyramid=$(TARGETDIR)/report/overview-pyramid.svg --ignore=vendor ./src
 	#./vendor/bartlett/php-compatinfo/bin/phpcompatinfo --no-ansi analyser:run src/ > $(TARGETDIR)/report/phpcompatinfo.txt
 
-# Build the RPM package for RedHat-like Linux distributions
+## Generate mode samples and run external preflight validators (if installed)
+.PHONY: preflight
+preflight: ensuretarget
+	bash ./resources/preflight/run_preflight_matrix.sh
+
+## Generate renderability score and trend reports for the real-page corpus
+.PHONY: renderability
+renderability: ensuretarget
+	$(PHP) resources/css/renderability_score.php \
+		--corpus=test/fixtures/html/real_pages/corpus.json \
+		--json=$(TARGETDIR)/report/renderability-score.json \
+		--markdown=$(TARGETDIR)/report/renderability-score.md
+	$(PHP) resources/css/renderability_trend.php \
+		--score=$(TARGETDIR)/report/renderability-score.json \
+		--history=$(TARGETDIR)/report/renderability-trend.json \
+		--markdown=$(TARGETDIR)/report/renderability-trend.md
+
+## Generate PDF/UA examples and validate with veraPDF
+.PHONY: verapdf-ua
+verapdf-ua: ensuretarget
+	@if [[ -z "$(VERAPDF_BIN)" ]]; then \
+		echo "veraPDF CLI not found. Set VERAPDF_BIN=/path/to/verapdf or add verapdf to PATH."; \
+		exit 2; \
+	fi
+	$(PHP) examples/E015_pdfua.php > $(TARGETDIR)/report/E015_pdfua.pdf
+	$(PHP) examples/E016_pdfua1.php > $(TARGETDIR)/report/E016_pdfua1.pdf
+	$(PHP) examples/E017_pdfua2.php > $(TARGETDIR)/report/E017_pdfua2.pdf
+	@fail=0; \
+	for spec in "E015_pdfua.pdf:ua1" "E016_pdfua1.pdf:ua1" "E017_pdfua2.pdf:ua2"; do \
+		file="$${spec%%:*}"; \
+		flavour="$${spec##*:}"; \
+		input="$(TARGETDIR)/report/$${file}"; \
+		report="$(TARGETDIR)/report/$${file%.pdf}.verapdf.txt"; \
+		if "$(VERAPDF_BIN)" --format text --verbose --flavour "$${flavour}" "$${input}" > "$${report}" 2>&1; then \
+			echo "[ok] $${file} ($${flavour})"; \
+		else \
+			echo "[fail] $${file} ($${flavour}) - see $${report}"; \
+			fail=1; \
+		fi; \
+	done; \
+	echo "veraPDF reports written to $(TARGETDIR)/report/*.verapdf.txt"; \
+	exit $$fail
+
+## Build the RPM package for RedHat-like Linux distributions
 .PHONY: rpm
 rpm:
 	rm -rf $(PATHRPMPKG)
+	mkdir -p $(RPMDBPATH) $(PATHRPMPKG)/tmp
 	rpmbuild \
 	--define "_topdir $(PATHRPMPKG)" \
+	--define "_dbpath $(RPMDBPATH)" \
+	--define "_tmppath $(PATHRPMPKG)/tmp" \
 	--define "_vendor $(VENDOR)" \
 	--define "_owner $(OWNER)" \
 	--define "_project $(PROJECT)" \
 	--define "_package $(PKGNAME)" \
 	--define "_version $(VERSION)" \
-	--define "_release $(RELEASE)" \
+	--define "_release $(RPMRELEASE)" \
 	--define "_current_directory $(CURRENTDIR)" \
 	--define "_libpath /$(LIBPATH)" \
 	--define "_docpath /$(DOCPATH)" \
 	--define "_configpath /$(CONFIGPATH)" \
 	-bb resources/rpm/rpm.spec
 
-# Start the development server
+## Start the development server
 .PHONY: server
 server:
 	$(PHP) -t examples -S localhost:$(PORT)
 
-# Tag this GIT version
+## Tag this GIT version
 .PHONY: tag
 tag:
 	git checkout main && \
@@ -270,26 +314,26 @@ tag:
 	git push origin --tags && \
 	git pull
 
-# Run unit tests
+## Run unit tests
 .PHONY: test
 test:
 	cp phpunit.xml.dist phpunit.xml
 	#./vendor/bin/phpunit --migrate-configuration || true
 	XDEBUG_MODE=coverage ./vendor/bin/phpunit --stderr test
 
-# Remove all installed files
+## Remove all installed files
 .PHONY: uninstall
 uninstall:
 	rm -rf $(PATHINSTBIN)
 	rm -rf $(PATHINSTDOC)
 
-# set the version
+## Set the version from the VERSION file
+.PHONY: version
 version:
-	sed --in-place=.bak -e "s/protected string \$$version = '.*';/protected string \$$version = '${VERSION}';/g" src/Base.php
+	sed $(SEDINPLACE) -e "s/protected string \$$version = '.*';/protected string \$$version = '${VERSION}';/g" src/Base.php
 
-# Increase the version patch number
+## Increase the version patch number
 .PHONY: versionup
 versionup:
 	echo ${VERSION} | gawk -F. '{printf("%d.%d.%d\n",$$1,$$2,(($$3+1)));}' > VERSION
 	$(MAKE) version
-

@@ -1,167 +1,277 @@
-# tc-lib-pdf
+# tc-lib-pdf (TCPDF)
 
-***PHP PDF Library***
+<img src="resources/img/tcpdf_logo.svg" alt="TCPDF logo" width="150" />
+
+> **The next generation of [TCPDF](https://tcpdf.org)** - a modern, modular PHP library for programmatically generating PDF documents.
 
 [![Latest Stable Version](https://poser.pugx.org/tecnickcom/tc-lib-pdf/version)](https://packagist.org/packages/tecnickcom/tc-lib-pdf)
-![Build](https://github.com/tecnickcom/tc-lib-pdf/actions/workflows/check.yml/badge.svg)
+[![Build](https://github.com/tecnickcom/tc-lib-pdf/actions/workflows/check.yml/badge.svg)](https://github.com/tecnickcom/tc-lib-pdf/actions/workflows/check.yml)
 [![Coverage](https://codecov.io/gh/tecnickcom/tc-lib-pdf/graph/badge.svg?token=rmAqNKVG1c)](https://codecov.io/gh/tecnickcom/tc-lib-pdf)
 [![License](https://poser.pugx.org/tecnickcom/tc-lib-pdf/license)](https://packagist.org/packages/tecnickcom/tc-lib-pdf)
 [![Downloads](https://poser.pugx.org/tecnickcom/tc-lib-pdf/downloads)](https://packagist.org/packages/tecnickcom/tc-lib-pdf)
 
-[![Donate via PayPal](https://img.shields.io/badge/donate-paypal-87ceeb.svg)](https://www.paypal.com/donate/?hosted_button_id=NZUEC5XS8MFBJ)
-*Please consider supporting this project by making a donation via [PayPal](https://www.paypal.com/donate/?hosted_button_id=NZUEC5XS8MFBJ)*
+[![Sponsor on GitHub](https://img.shields.io/badge/sponsor-github-EA4AAA.svg?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/tecnickcom)
 
-* **category**    Library
-* **package**     \Com\Tecnick\Pdf
-* **author**      Nicola Asuni <info@tecnick.com>
-* **copyright**   2002-2026 Nicola Asuni - Tecnick.com LTD
-* **license**     https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
-* **link**        https://tcpdf.org
-* **source**      https://github.com/tecnickcom/tc-lib-pdf
-* **SRC DOC**     https://tcpdf.org/docs/srcdoc/tc-lib-pdf
+If this project is useful to you, please consider [supporting development via GitHub Sponsors](https://github.com/sponsors/tecnickcom).
 
-## Description
+---
 
-A PHP library for generating PDF documents dynamically.  
-This is the latest iteration of the TCPDF library; the previous version will be deprecated once all its features have been migrated.
+## Contents
 
-**Note:** The first fully stable release was version 8.1.0. Subsequent releases adhere to semantic versioning: PATCH versions are reserved for backwards-compatible bug fixes, MINOR versions for backwards-compatible feature enhancements, and MAJOR versions for changes that break backwards compatibility. For further details, see [semver.org](https://semver.org/).
+- [Overview](#overview)
+- [For TCPDF Users](#for-tcpdf-users)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Examples](#examples)
+- [In-Depth Documentation](#in-depth-documentation)
+- [Contributing](#contributing)
 
-### Main Features
+---
 
-***Features with strikethrough are planned for future releases and are not yet available.***
+## Overview
 
-* all standard page formats, custom page formats, custom margins and units of measure;
-* UTF-8 Unicode and Right-To-Left languages;
-* TrueTypeUnicode, OpenTypeUnicode v1, TrueType, OpenType v1, Type1 and CID-0 fonts;
-* font subsetting;
-* SVG
-* CSS
-* ~~HTML~~ (WIP)
-* JavaScript
-* images, graphic (geometric figures) and transformation methods;
-* supports JPEG, PNG and SVG images natively, all images supported by GD (GD, GD2, GD2PART, GIF, JPEG, PNG, BMP, XBM, XPM) and all images supported via ImagMagick (http://www.imagemagick.org/script/formats.php)
-* 1D and 2D barcodes via tc-lib-barcode.
-* JPEG and PNG ICC profiles, Grayscale, RGB, CMYK, Spot Pdfs and Transparencies;
-* page common content support (header/footer);
-* document encryption up to 256 bit and digital signature certifications;
-* PDF annotations, including links, text and file attachments;
-* text rendering modes (fill, stroke and clipping);
-* multiple columns mode;
-* no-write page regions;
-* bookmarks, named destinations and table of content;
-* text hyphenation;
-* text stretching and spacing (tracking);
-* automatic page break, line break and text alignments including justification;
-* automatic page numbering and page groups;
-* move and delete pages;
-* page compression (requires php-zlib extension);
-* XOBject Templates;
-* Layers and object visibility.
-* PDF/A-1b support.
+`tc-lib-pdf` is a pure-PHP library for dynamically generating PDF documents.  
+It is the modern evolution of the widely used TCPDF library, redesigned around a modular package architecture, Composer-first workflow, and strict PHP type safety.
 
-### Third party fonts
+It coordinates specialized companion packages for fonts, images, graphics, pages, filtering, and encryption into a cohesive document-authoring API. The result is a production-ready toolkit for invoices, reports, labels, and other generated PDFs where predictable output and long-term maintainability matter.
 
-This library may include third party font files released with different licenses.
+| | |
+|---|---|
+| **Namespace** | `\Com\Tecnick\Pdf` |
+| **Author** | Nicola Asuni \<info@tecnick.com\> |
+| **License** | [GNU LGPL v3](https://www.gnu.org/copyleft/lesser.html) - see [LICENSE](LICENSE) |
+| **Website** | <https://tcpdf.org> |
+| **API docs** | <https://tcpdf.org/docs/srcdoc/tc-lib-pdf> |
+| **Packagist** | <https://packagist.org/packages/tecnickcom/tc-lib-pdf> |
 
-All the PHP files on the fonts directory are subject to the general TCPDF license (GNU-LGPLv3),
-they do not contain any binary data but just a description of the general properties of a particular font.
-These files can be also generated on the fly using the font utilities and TCPDF methods.
+Releases follow [Semantic Versioning](https://semver.org):
 
-All the original binary TTF font files have been renamed for compatibility with TCPDF and compressed using the gzcompress PHP function that uses the ZLIB data format (.z files).
+- **PATCH** — backwards-compatible bug fixes
+- **MINOR** — backwards-compatible new features
+- **MAJOR** — breaking changes
 
-The binary files (.z) that begins with the prefix "free" have been extracted from the GNU FreeFont collection (GNU-GPLv3).
-The binary files (.z) that begins with the prefix "pdfa" have been derived from the GNU FreeFont, so they are subject to the same license.
-For the details of Copyright, License and other information, please check the files inside the directory fonts/freefont-20120503
-Link : https://www.gnu.org/software/freefont/
+---
 
-The binary files (.z) that begins with the prefix "dejavu" have been extracted from the DejaVu fonts 2.33 (Bitstream) collection.
-For the details of Copyright, License and other information, please check the files inside the directory fonts/dejavu-fonts-ttf-2.33
-Link : http://dejavu-fonts.org
+## For TCPDF Users
 
-The binary files (.z) that begins with the prefix "ae" have been extracted from the Arabeyes.org collection (GNU-GPLv2).
-Link : http://projects.arabeyes.org/
+If you already know TCPDF, `tc-lib-pdf` will feel familiar in purpose but it is not positioned as a drop-in replacement.
 
-### ICC profile
+- The codebase is split across focused Composer packages instead of a single monolithic distribution.
+- The API surface is more strongly typed and organized around companion services such as fonts, pages, graphics, and images.
+- Setup is Composer-first, which means asset preparation such as font generation is part of project bootstrap rather than an implicit bundled step.
 
-TCPDF includes the sRGB.icc profile from the icc-profiles-free Debian package:
-https://packages.debian.org/source/stable/icc-profiles-free
+The fastest way to evaluate the library is to follow the installation and quick-start steps below, then compare the runnable examples in [examples/index.md](examples/index.md) with the equivalent workflows you already maintain in TCPDF.
 
-## Getting started
+## Features
 
-First, you need to install all development dependencies using [Composer](https://getcomposer.org/):
+### Text & Fonts
+- Full **UTF-8 Unicode** and **right-to-left** (RTL) language support
+- **TrueTypeUnicode**, **OpenTypeUnicode v1**, TrueType, OpenType v1, Type1, and CID-0 fonts
+- Font subsetting to keep file sizes small
+- Text hyphenation, stretching, and letter-spacing (tracking)
+- Language-aware TeX hyphenation patterns and optional zero-width breakpoints
+- Text rendering modes: fill, stroke, and clipping
+- Automatic line breaks, page breaks, and justification
 
-```bash
-curl -sS https://getcomposer.org/installer | php
-mv composer.phar /usr/local/bin/composer
-```
+### Layout & Content
+- All standard page sizes, custom formats, custom margins, and configurable units of measure
+- **HTML** and **CSS** rendering
+- **SVG** rendering
+- Multi-column layouts and no-write page regions
+- Headers, footers, and common page content
+- Bookmarks, named destinations, and table of contents
+- Automatic page numbering and page groups
+- Full page box control (Media/Crop/Bleed/Trim/Art), page reordering, and viewer preferences
 
-You can install the library via composer:
+### Images & Graphics
+- Native **JPEG**, **PNG**, and **SVG** support
+- Extended image format handling via GD (`GD`, `GD2`, `GD2PART`, `GIF`, `JPEG`, `PNG`, `BMP`, `XBM`, `XPM`, `WBMP`, `TIFF`, `ICO`, `PSD`, `IFF`, `SWC`)
+- Geometric graphics and 2D transformations
+- Linear and radial gradients, Coons patch mesh gradients, crop marks, and registration bars
+- **JPEG and PNG ICC profiles**, grayscale/RGB/CMYK/spot colors, transparencies, and overprint control
+
+### Security & Standards
+- Password and certificate-based document encryption (RC4 and AES, up to 256-bit)
+- Remote resource controls via `fileOptions` with host allowlists plus separate internal and markup local-path allowlists for external assets
+- **Digital signatures** — detached CMS (PKCS#7) signatures with configurable appearance fields
+- **RFC 3161 TSA timestamps** — embed a trusted timestamp token from any RFC 3161-compliant Time Stamping Authority (TSA) into the CMS signature; configurable digest algorithm (`sha256`, `sha384`, `sha512`), policy OID, nonce, timeout, and TLS peer verification
+- **LTV (Long-Term Validation)** — embed revocation evidence in the same PDF revision as the signature:
+  - collects the signing certificate chain and fetches OCSP responses and/or CRL payloads from AIA and CDP URLs
+  - deduplicates binary payloads by fingerprint
+  - emits `/DSS`, `/VRI`, `/OCSPs`, `/CRLs`, and `/Certs` objects in the catalog
+  - each feature (OCSP, CRL, cert embedding, DSS, VRI) can be enabled independently via `setSignature()` LTV options
+- **PDF annotations**: links, text notes, file attachments, markup, shapes, media, and widgets
+- **JavaScript** embedding
+- **PDF/A** (1/2/3, including a/b/u conformance levels) — see [doc/STANDARDS.md](doc/STANDARDS.md) and [E001_invoice.php](examples/E001_invoice.php) for a Factur-X / ZUGFeRD example
+- **PDF/X** (generic alias, PDF/X-1a, PDF/X-3, PDF/X-4, PDF/X-5) — print-exchange conformance: per-variant OutputIntent identifiers, GTS_PDFXVersion in Info dict and XMP, PDF version enforcement, CMYK color forcing for restrictive profiles (X-1a, X-3), transparency restrictions, and suppression of encryption and JavaScript
+- **PDF/UA** (generic alias, PDF/UA-1, PDF/UA-2) — accessibility conformance: tagged structure tree (`StructTreeRoot` / `ParentTree`), `MarkInfo /Marked true`, document language (`/Lang`), `DisplayDocTitle true`, `ActualText` for ligatures and special glyphs, figure alt-text tagging, and heading-level clamping to prevent skipped levels; PDF/UA-2 targets PDF 2.0
+
+### PDF Import
+- Import pages from existing PDFs as **Form XObjects** and place them on any destination page
+- Import a single page at a user-defined position and scale (`importPage` / `useImportedPage`)
+- Append full documents page-by-page, auto-sized to the source page dimensions (`addPageFromImport`)
+- Load source PDFs from a file path or raw byte string (`setImportSourceFile` / `setImportSourceData`)
+
+### Other
+- **1D and 2D barcodes** via [`tc-lib-barcode`](https://github.com/tecnickcom/tc-lib-barcode)
+- Interactive AcroForm fields (buttons, checkboxes, radio buttons, text, combo boxes, list boxes)
+- XObject templates and layers with object visibility controls
+- Multiple output targets: inline display, forced download, file save, and MIME attachment
+- Factur-X / ZUGFeRD workflows via embedded XML in PDF/A-3 documents
+- Page compression via the `zlib` PHP extension
+
+---
+
+## Requirements
+
+- **PHP 8.2** or later
+- Required PHP extensions: `date`, `pcre` (enforced by Composer)
+- Composer
+
+Optional PHP extensions for extended functionality: `gd`, `zlib`.
+
+Feature-specific prerequisites:
+
+- Digital signatures, timestamps, and LTV workflows require signing certificates/keys and any external TSA or revocation endpoints your configuration references.
+- `make preflight` depends on external validation tools when you want standards validation beyond the built-in sample generation.
+
+---
+
+## Installation
+
+For a clean first run:
+
+1. Install the package with Composer.
+2. Generate companion font files (see [doc/FONTS.md](doc/FONTS.md)).
+3. Run the minimal script using the generated `K_PATH_FONTS` path.
 
 ```bash
 composer require tecnickcom/tc-lib-pdf
 ```
 
-This project include a Makefile that allows you to test and build the project with simple commands.
-To see all available options:
-
-```bash
-make help
-```
-
-To install all the development dependencies:
-
-```bash
-make deps
-```
-
-## Running all tests
-
-Before committing the code, please check if it passes all tests using
-
-```bash
-make qa
-```
-
-All artifacts are generated in the target directory.
-
-## Example
-
-Examples are located in the `example` directory.
-
-Start a development server (requires PHP 8.1+) using the command:
-
-```bash
-make server
-```
-
-and point your browser to <http://localhost:8971/index.php>
-
-## Installation
-
-Create a composer.json in your projects root-directory:
+Or add to your `composer.json`:
 
 ```json
 {
     "require": {
-        "tecnickcom/tc-lib-pdf": "^8.4"
-    },
+        "tecnickcom/tc-lib-pdf": "^8"
+    }
 }
 ```
 
-## Packaging
+---
 
-This library is mainly intended to be used and included in other PHP projects using Composer.
-However, since some production environments dictates the installation of any application as RPM or DEB packages,
-this library includes make targets for building these packages (`make rpm` and `make deb`).
-The packages are generated under the `target` directory.
+## Quick Start
 
-When this library is installed using an RPM or DEB package, you can use it your code by including the autoloader:
+The following example assumes the script lives in your project root. If you place it elsewhere, adjust the `autoload.php` and `K_PATH_FONTS` paths accordingly.
 
-```bash
-require_once ('/usr/share/php/Com/Tecnick/Barcode/autoload.php');
+```php
+<?php
+
+require(__DIR__ . '/vendor/autoload.php');
+
+\define('K_PATH_FONTS', \realpath(__DIR__ . '/vendor/tecnickcom/tc-lib-pdf-font/target/fonts'));
+
+$pdf = new \Com\Tecnick\Pdf\Tcpdf();
+
+$bfont = $pdf->font->insert($pdf->pon, 'helvetica', '', 12);
+
+$page = $pdf->addPage();
+
+$pdf->page->addContent($bfont['out']);
+
+$html = '<h1>Hello, PDF!</h1><p>Generated with tc-lib-pdf.</p>';
+
+$pdf->addHTMLCell(
+    html:   $html,
+    posx:   15,   // mm from left page edge
+    posy:   20,   // mm from top page edge
+    width:  180,  // mm wide (0 = to right margin)
+);
+
+$rawpdf = $pdf->getOutPDFString();
+
+$pdf->renderPDF($rawpdf);
 ```
 
-## Developer(s) Contact
+`getOutPDFString()` returns the raw PDF bytes. `renderPDF()` streams those bytes to the browser; if you need file storage or an email attachment, keep the returned string and write or hand it off yourself.
 
-*2026 Nicola Asuni <info@tecnick.com>
+> **Note:** `realpath()` returns `false` when the fonts directory does not yet exist. If you see `K_PATH_FONTS` errors on first run, verify that fonts were generated after `composer install` (see [doc/FONTS.md](doc/FONTS.md)).
+
+For more complete examples — including invoices, images, barcodes, HTML tables, dedicated HTML selector/form/table showcases, PDF/X, and PDF/UA — see the [examples](examples) directory.
+Annotation-focused runnable example: [examples/E027_annotations.php](examples/E027_annotations.php).
+
+To run the bundled examples locally:
+
+```bash
+make x       # build example assets
+make server  # start a local PHP server
+```
+
+Then open <http://localhost:8971/index.php>.
+
+If the minimal example fails on first run, verify these two points first:
+
+- `K_PATH_FONTS` resolves to an existing generated font directory.
+
+- The companion fonts were generated after `composer install` or `composer update`.
+
+---
+
+## Examples
+
+The [examples](examples) directory is the fastest way to understand supported features and integration patterns in runnable form.
+
+Useful starting points:
+
+- [examples/index.md](examples/index.md): index of available examples.
+- [examples/E000_overview.php](examples/E000_overview.php): broad feature overview.
+- [examples/E006_minimal.php](examples/E006_minimal.php): minimal PDF generation flow.
+- [examples/E043_html_tables.php](examples/E043_html_tables.php): HTML table rendering.
+- [examples/E065_import_single_page.php](examples/E065_import_single_page.php): PDF page import.
+
+Selected topic groups in the examples set:
+
+- Document basics (layout, headers/footers, cells, colors, images, text rendering)
+- Standards and compliance (PDF/X, PDF/UA, PDF/A workflows)
+- Security and signing (encryption, signatures, timestamps, LTV)
+- Advanced composition (annotations, templates, layers, page import/reorder)
+
+To preview examples locally:
+
+```bash
+make x
+make server
+```
+
+Then open <http://localhost:8971/index.php>.
+
+---
+
+## In-Depth Documentation
+
+For implementation details, compliance guidance, operational workflows, and advanced usage patterns, see the focused guides in the `doc/` directory:
+
+- Font setup, custom fonts, and third-party font licenses: [doc/FONTS.md](doc/FONTS.md)
+- ICC profile details: [doc/ICC_PROFILE.md](doc/ICC_PROFILE.md)
+- PDF import API, examples, and fidelity notes: [doc/PDF_IMPORT.md](doc/PDF_IMPORT.md)
+- Remote resources and `fileOptions` (`allowedHosts`, `allowedPaths`, `markupAllowedPaths`, cURL policy): [doc/REMOTE_RESOURCES.md](doc/REMOTE_RESOURCES.md)
+- Digital signatures, TSA timestamps, and LTV: [doc/DIGITAL_SIGNATURES.md](doc/DIGITAL_SIGNATURES.md)
+- PDF/A, PDF/X, and PDF/UA conformance modes: [doc/STANDARDS.md](doc/STANDARDS.md)
+- Development, QA, preflight, and packaging workflows: [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md)
+
+---
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before submitting a pull request.
+
+1. Fork the repository and create a feature branch.
+2. Write or update tests for your change.
+3. Run `make qa` to ensure the full pipeline passes.
+4. Open a pull request with a clear description of the change.
+
+Security vulnerabilities should be reported according to [SECURITY.md](SECURITY.md).
+
