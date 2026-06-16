@@ -4578,6 +4578,208 @@ class HTMLTest extends TestUtil
     }
 
     /**
+     * Build a two-column page layout on the given object and return the
+     * geometry shared by the column-break re-anchor tests.
+     *
+     * @return array{leftMargin: float, topMargin: float, columnWidth: float, contentHeight: float, col2x: float}
+     *
+     * @throws \Throwable
+     */
+    private function addTwoColumnPage(\Com\Tecnick\Pdf\Tcpdf $obj): array
+    {
+        $leftMargin = 15.0;
+        $rightMargin = 15.0;
+        $topMargin = 20.0;
+        $bottomMargin = 20.0;
+        $columnGap = 8.0;
+        $contentWidth = 210.0 - $leftMargin - $rightMargin;
+        $contentHeight = 297.0 - $topMargin - $bottomMargin;
+        $columnWidth = ($contentWidth - $columnGap) / 2.0;
+        $col2x = $leftMargin + $columnWidth + $columnGap;
+
+        $obj->addPage([
+            'margin' => [
+                'PL' => $leftMargin,
+                'PR' => $rightMargin,
+                'CT' => $topMargin,
+                'CB' => $bottomMargin,
+            ],
+            'region' => [
+                [
+                    'RX' => $leftMargin,
+                    'RY' => $topMargin,
+                    'RW' => $columnWidth,
+                    'RH' => $contentHeight,
+                ],
+                [
+                    'RX' => $col2x,
+                    'RY' => $topMargin,
+                    'RW' => $columnWidth,
+                    'RH' => $contentHeight,
+                ],
+            ],
+        ]);
+
+        return [
+            'leftMargin' => $leftMargin,
+            'topMargin' => $topMargin,
+            'columnWidth' => $columnWidth,
+            'contentHeight' => $contentHeight,
+            'col2x' => $col2x,
+        ];
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testParseHTMLTextReanchorsLineCursorAfterRegionBreakToSecondColumn(): void
+    {
+        // Regression: when the fragment itself triggers a region break, the
+        // line-local state captured before the break (line origin X, offset,
+        // available width) must be re-read from the updated cell context, or
+        // the fragment renders at the previous region's X origin.
+        $obj = $this->getBBoxProbeTestObject();
+        $this->initFont($obj);
+        $geo = $this->addTwoColumnPage($obj);
+
+        $obj->exposeInitHTMLCellContext($geo['leftMargin'], $geo['topMargin'], $geo['columnWidth'], 0.0);
+        $obj->exposeResetBBoxTrace();
+
+        // A single unbreakable word: no line-split opportunity, so the whole
+        // fragment must move to the next region through the willBreak path.
+        $elm = $this->makeHtmlNode([
+            'value' => 'ColumnBreakProbe',
+            'align' => 'L',
+        ]);
+
+        // Cursor at the bottom of the first column: one text line no longer
+        // fits vertically, forcing the break into the second column region.
+        $tpx = $geo['leftMargin'];
+        $tpy = $geo['topMargin'] + $geo['contentHeight'] - 1.0;
+        $tpw = $geo['columnWidth'];
+        $tph = 0.0;
+
+        $obj->exposeParseHTMLText($elm, $tpx, $tpy, $tpw, $tph);
+
+        $trace = $obj->exposeGetBBoxTrace();
+        $this->assertCount(1, $trace);
+        assert(isset($trace[0]), "\$trace[0] must be set");
+        $this->assertEqualsWithDelta(
+            $geo['col2x'],
+            $trace[0]['in_x'],
+            0.05,
+            'Fragment must re-anchor to the second column X origin after the region break.',
+        );
+        $this->assertEqualsWithDelta(
+            $geo['topMargin'],
+            $trace[0]['in_y'],
+            0.5,
+            'Fragment must render at the top of the new region.',
+        );
+        $this->assertGreaterThanOrEqual(
+            $geo['col2x'],
+            $tpx,
+            'Cursor must advance from the new line origin, not the stale one.',
+        );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testParseHTMLTextReanchorsAfterRegionBreakWithZeroMaxWidth(): void
+    {
+        // Same re-anchor regression as above, exercising the fallback width
+        // branch: with no cell max width the post-break width is recomputed
+        // from the line-local available width instead of the cell context.
+        $obj = $this->getBBoxProbeTestObject();
+        $this->initFont($obj);
+        $geo = $this->addTwoColumnPage($obj);
+
+        $obj->exposeInitHTMLCellContext($geo['leftMargin'], $geo['topMargin'], 0.0, 0.0);
+        $obj->exposeResetBBoxTrace();
+
+        $elm = $this->makeHtmlNode([
+            'value' => 'ColumnBreakProbe',
+            'align' => 'L',
+        ]);
+
+        $tpx = $geo['leftMargin'];
+        $tpy = $geo['topMargin'] + $geo['contentHeight'] - 1.0;
+        $tpw = $geo['columnWidth'];
+        $tph = 0.0;
+
+        $obj->exposeParseHTMLText($elm, $tpx, $tpy, $tpw, $tph);
+
+        $trace = $obj->exposeGetBBoxTrace();
+        $this->assertCount(1, $trace);
+        assert(isset($trace[0]), "\$trace[0] must be set");
+        $this->assertEqualsWithDelta(
+            $geo['col2x'],
+            $trace[0]['in_x'],
+            0.05,
+            'Fragment must re-anchor to the second column X origin after the region break.',
+        );
+        $this->assertEqualsWithDelta(
+            $geo['topMargin'],
+            $trace[0]['in_y'],
+            0.5,
+            'Fragment must render at the top of the new region.',
+        );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testAddHTMLCellReanchorsBreakingFragmentIntoSecondColumn(): void
+    {
+        // Regression: in a multi-column layout, the unbreakable fragment that
+        // overflows the first column must render at the second column's X
+        // origin, not at the first column's X over already-rendered content.
+        $obj = $this->getBBoxProbeTestObject();
+        $this->initFont($obj);
+        $geo = $this->addTwoColumnPage($obj);
+        $obj->exposeResetBBoxTrace();
+
+        // Single-word paragraphs have no line-split opportunity: the one that
+        // hits the first column's bottom moves as a whole to the next region.
+        $html = '';
+        for ($i = 0; $i < 45; ++$i) {
+            $html .= '<p>Word' . \str_pad((string) $i, 3, '0', \STR_PAD_LEFT) . '</p>';
+        }
+
+        $obj->addHTMLCell($html, $geo['leftMargin'], $geo['topMargin'], $geo['columnWidth'], 0);
+
+        /** @var \Com\Tecnick\Pdf\Page\Page $page */
+        $page = $this->getObjectProperty($obj, 'page');
+        $this->assertCount(1, $page->getPages(), 'Content must fit in the two column regions of a single page.');
+
+        $trace = $obj->exposeGetBBoxTrace();
+        $this->assertGreaterThan(1, \count($trace));
+
+        // Every fragment placed back at the region top after the first one
+        // belongs to the second column: a fragment at the first column's X at
+        // the region top means the break did not re-anchor the line origin.
+        $foundSecondColumn = false;
+        foreach ($trace as $idx => $row) {
+            if ($row['in_x'] >= ($geo['col2x'] - 0.5)) {
+                $foundSecondColumn = true;
+            }
+
+            if ($idx === 0 || $row['in_y'] > ($geo['topMargin'] + 1.0)) {
+                continue;
+            }
+
+            $this->assertGreaterThanOrEqual(
+                $geo['col2x'] - 0.5,
+                $row['in_x'],
+                'Fragment "' . $row['txt'] . '" rendered at the region top must be in the second column.',
+            );
+        }
+
+        $this->assertTrue($foundSecondColumn, 'Expected content to flow into the second column.');
+    }
+
+    /**
      * @throws \Throwable
      */
     public function testAddHTMLCellAutoFlowSpansMultiplePages(): void
@@ -4623,6 +4825,252 @@ class HTMLTest extends TestUtil
         $afterPages = \count($page->getPages());
 
         $this->assertSame($beforePages, $afterPages);
+    }
+
+    /**
+     * Add an A4 portrait page with 100mm top and bottom margins, leaving a
+     * narrow central content band (y 100..197mm) so that content can be placed
+     * in the bottom margin (below the content region).
+     *
+     * @throws \Throwable
+     */
+    private function addBottomMarginTestPage(\Com\Tecnick\Pdf\Tcpdf $obj, bool $autobreak): void
+    {
+        $this->initFont($obj);
+        $obj->addPage([
+            'format' => 'A4',
+            'orientation' => 'P',
+            'autobreak' => $autobreak,
+            'margin' => [
+                'PT' => 100.0,
+                'PB' => 100.0,
+                'CT' => 100.0,
+                'CB' => 100.0,
+            ],
+        ]);
+    }
+
+    /**
+     * Concatenate the content streams of every page into a single string.
+     *
+     * @throws \Throwable
+     */
+    private function collectPageContent(\Com\Tecnick\Pdf\Page\Page $pageObj): string
+    {
+        $content = '';
+        foreach ($pageObj->getPages() as $pdata) {
+            $pageContent = $pdata['content'];
+            $content .= "\n" . \implode("\n", $pageContent);
+        }
+
+        return $content;
+    }
+
+    /**
+     * Return the top-edge Y coordinate (internal points, origin bottom-left) of
+     * every rectangle emitted with the PDF `re` operator in a content stream.
+     * Table border rectangles are drawn from the top edge with a negative
+     * height, so the top edge is the larger of the two Y endpoints.
+     *
+     * @return list<float>
+     */
+    private function htmlReRectangleTops(string $content): array
+    {
+        $tops = [];
+        $matches = [];
+        $num = '(-?\d+(?:\.\d+)?)';
+        if (\preg_match_all(
+            '/' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+re(?![A-Za-z])/',
+            $content,
+            $matches,
+            \PREG_SET_ORDER,
+        )) {
+            foreach ($matches as $match) {
+                if (!isset($match[2], $match[4]) || !\is_numeric($match[2]) || !\is_numeric($match[4])) {
+                    continue;
+                }
+
+                $posy = (float) $match[2];
+                $rheight = (float) $match[4];
+                $tops[] = \max($posy, $posy + $rheight);
+            }
+        }
+
+        return $tops;
+    }
+
+    /**
+     * Regression: a bounded HTML cell placed in the bottom page margin must
+     * render its table at its absolute position inside the margin, not reset it
+     * to the top of the content region.
+     *
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellBoundedTableInBottomMarginStaysAtAbsolutePosition(): void
+    {
+        $obj = $this->getTestObject();
+        $this->addBottomMarginTestPage($obj, false);
+
+        $contentBottom = 297.0 - 100.0; // region bottom edge (mm from top)
+        $posy = $contentBottom + 50.0 - 4.0; // ~243mm, inside the bottom margin
+
+        $html =
+            '<div style="text-align:center;">'
+            . '<p><b>BOTTOM BORDER</b><br />text inside the bottom margin.</p>'
+            . '<table border="1"><tr><td>Table Cell BOTTOM</td></tr></table>'
+            . '</div>';
+
+        $out = $obj->getHTMLCell($html, 20.0, $posy, 170.0, 20.0);
+
+        $tops = $this->htmlReRectangleTops($out);
+        $this->assertNotEmpty($tops, 'Expected the table border to be rendered.');
+
+        // In PDF space (origin bottom-left) the content-region bottom edge sits
+        // at this Y; anything in the bottom margin is at or below it (smaller Y).
+        $regionBottomPt = $obj->toYPoints($contentBottom);
+        foreach ($tops as $top) {
+            $this->assertLessThanOrEqual(
+                $regionBottomPt + 1.0,
+                $top,
+                'Table border must stay inside the bottom margin, not reset to the content-region top.',
+            );
+        }
+    }
+
+    /**
+     * Regression: an unbounded HTML cell placed in the bottom margin with
+     * automatic page break disabled must not add a page nor yank the table back
+     * to the content-region top (pageBreak() is a no-op when there is nowhere to
+     * break to, so the cursor must be left untouched).
+     *
+     * @throws \Throwable
+     */
+    public function testAddHTMLCellUnboundedTableInBottomMarginWithoutAutoBreakStaysOnPage(): void
+    {
+        $obj = $this->getTestObject();
+        $this->addBottomMarginTestPage($obj, false);
+
+        /** @var \Com\Tecnick\Pdf\Page\Page $pageObj */
+        $pageObj = $this->getObjectProperty($obj, 'page');
+        $beforePages = \count($pageObj->getPages());
+
+        $contentBottom = 297.0 - 100.0;
+        $posy = $contentBottom + 50.0 - 4.0;
+
+        $html = '<div><p>BOTTOM</p><table border="1"><tr><td>Table Cell BOTTOM</td></tr></table></div>';
+        $obj->addHTMLCell($html, 20.0, $posy, 170.0, 0.0);
+
+        $this->assertSame($beforePages, \count($pageObj->getPages()), 'No page must be added when autobreak is off.');
+
+        $tops = $this->htmlReRectangleTops($this->collectPageContent($pageObj));
+        $this->assertNotEmpty($tops);
+        $regionBottomPt = $obj->toYPoints($contentBottom);
+        foreach ($tops as $top) {
+            $this->assertLessThanOrEqual(
+                $regionBottomPt + 1.0,
+                $top,
+                'Table must stay in the bottom margin when autobreak is off.',
+            );
+        }
+    }
+
+    /**
+     * Counterpart to the no-autobreak case: an unbounded cell overflowing the
+     * region with autobreak enabled must still legitimately break to a new page.
+     *
+     * @throws \Throwable
+     */
+    public function testAddHTMLCellUnboundedTableInBottomMarginWithAutoBreakMovesToNewPage(): void
+    {
+        $obj = $this->getTestObject();
+        $this->addBottomMarginTestPage($obj, true);
+
+        /** @var \Com\Tecnick\Pdf\Page\Page $pageObj */
+        $pageObj = $this->getObjectProperty($obj, 'page');
+        $beforePages = \count($pageObj->getPages());
+
+        $contentBottom = 297.0 - 100.0;
+        $posy = $contentBottom + 50.0 - 4.0;
+
+        $html = '<div><p>BOTTOM</p><table border="1"><tr><td>Table Cell BOTTOM</td></tr></table></div>';
+        $obj->addHTMLCell($html, 20.0, $posy, 170.0, 0.0);
+
+        $this->assertGreaterThan(
+            $beforePages,
+            \count($pageObj->getPages()),
+            'Unbounded overflow with autobreak on must add a page.',
+        );
+    }
+
+    /**
+     * Regression: a bounded cell must not paginate even when autobreak is on -
+     * the explicit height makes it an absolutely-positioned box that stays put.
+     *
+     * @throws \Throwable
+     */
+    public function testAddHTMLCellBoundedTableInBottomMarginWithAutoBreakDoesNotBreak(): void
+    {
+        $obj = $this->getTestObject();
+        $this->addBottomMarginTestPage($obj, true);
+
+        /** @var \Com\Tecnick\Pdf\Page\Page $pageObj */
+        $pageObj = $this->getObjectProperty($obj, 'page');
+        $beforePages = \count($pageObj->getPages());
+
+        $contentBottom = 297.0 - 100.0;
+        $posy = $contentBottom + 50.0 - 4.0;
+
+        $html = '<div><p>BOTTOM</p><table border="1"><tr><td>Table Cell BOTTOM</td></tr></table></div>';
+        $obj->addHTMLCell($html, 20.0, $posy, 170.0, 20.0);
+
+        $this->assertSame(
+            $beforePages,
+            \count($pageObj->getPages()),
+            'A bounded cell must not break even when autobreak is on.',
+        );
+
+        $tops = $this->htmlReRectangleTops($this->collectPageContent($pageObj));
+        $this->assertNotEmpty($tops);
+        $regionBottomPt = $obj->toYPoints($contentBottom);
+        foreach ($tops as $top) {
+            $this->assertLessThanOrEqual($regionBottomPt + 1.0, $top);
+        }
+    }
+
+    /**
+     * Regression: a bounded box whose height extends past the page edge renders
+     * in place on a single page (overflow is the caller's responsibility for an
+     * absolutely-positioned box) rather than paginating.
+     *
+     * @throws \Throwable
+     */
+    public function testAddHTMLCellBoundedTableExceedingPageHeightRendersInPlaceOnSinglePage(): void
+    {
+        $obj = $this->getTestObject();
+        $this->addBottomMarginTestPage($obj, true);
+
+        /** @var \Com\Tecnick\Pdf\Page\Page $pageObj */
+        $pageObj = $this->getObjectProperty($obj, 'page');
+        $beforePages = \count($pageObj->getPages());
+
+        $contentBottom = 297.0 - 100.0;
+        $posy = $contentBottom + 50.0 - 4.0; // 243mm; with height 80 the box bottom (323mm) exceeds the 297mm page
+
+        $html = '<div><p>BOTTOM</p><table border="1"><tr><td>Table Cell BOTTOM</td></tr></table></div>';
+        $obj->addHTMLCell($html, 20.0, $posy, 170.0, 80.0);
+
+        $this->assertSame(
+            $beforePages,
+            \count($pageObj->getPages()),
+            'A box exceeding the page height must not paginate.',
+        );
+
+        $tops = $this->htmlReRectangleTops($this->collectPageContent($pageObj));
+        $this->assertNotEmpty($tops);
+        $regionBottomPt = $obj->toYPoints($contentBottom);
+        foreach ($tops as $top) {
+            $this->assertLessThanOrEqual($regionBottomPt + 1.0, $top);
+        }
     }
 
     /**
@@ -5168,6 +5616,126 @@ class HTMLTest extends TestUtil
 
         $this->assertNotSame('', $out);
         $this->assertMatchesRegularExpression('/\sre\s+s\b/s', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellTableBorderZeroAttributeDrawsNoBorder(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table border="0" cellspacing="0" cellpadding="2"><tr><td>A</td><td>B</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sre\s+s\b/s', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sl\s+S\b/s', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellTableCSSBorderZeroDrawsNoBorder(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table style="border:0" cellspacing="0" cellpadding="2"><tr><td>A</td><td>B</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sre\s+s\b/s', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sl\s+S\b/s', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellBorderWidthZeroLonghandOverridesShorthand(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table style="border:1px solid black;border-width:0"><tr><td>A</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sre\s+s\b/s', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sl\s+S\b/s', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellBorderStyleNoneLonghandOverridesShorthand(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table style="border:1px solid black;border-style:none"><tr><td>A</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sre\s+s\b/s', $out);
+        $this->assertDoesNotMatchRegularExpression('/\sl\s+S\b/s', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellBorderShorthandAfterLonghandWins(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table style="border-width:0;border:1px solid black"><tr><td>A</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        $this->assertMatchesRegularExpression('/\sre\s+s\b/s', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellBorderColorLonghandAppliesOverShorthand(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table style="border:1px solid black;border-color:red"><tr><td>A</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        $this->assertMatchesRegularExpression('/\sl\s+S\b/s', $out);
+        $this->assertStringContainsString('1.000000 0.000000 0.000000 RG', $out);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellCellBorderWidthZeroCancelsTableBorderAttribute(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html = '<table border="1" cellspacing="3" cellpadding="2"><tr><td style="border-width:0">A</td></tr></table>';
+
+        $out = $obj->getHTMLCell($html, 0, 0, 80, 30);
+
+        $this->assertNotSame('', $out);
+        // Only the table outer frame must be stroked; the cell border is cancelled.
+        $matches = [];
+        $this->assertSame(1, \preg_match_all('/\sre\s+s\b/s', $out, $matches));
+        $this->assertDoesNotMatchRegularExpression('/\sl\s+S\b/s', $out);
     }
 
     /**
@@ -9258,6 +9826,267 @@ class HTMLTest extends TestUtil
             0.01,
             'Replayed table headers must advance the cursor by their actual rendered height.',
         );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellReplaysTableHeadWithSameColumnWidthsOnPxUnitDocument(): void
+    {
+        // Regression for https://github.com/tecnickcom/tc-lib-pdf/issues/224:
+        // injectHTMLTableHeadColWidths serialized the computed column widths
+        // using the document unit name. CSS pixel lengths are parsed with the
+        // 96dpi ratio (1px = 0.75pt) while the 'px' document unit maps one
+        // user unit to one point, so replayed headers on continuation pages
+        // were rendered at 75% of the table width.
+        $obj = new \Com\Tecnick\Pdf\Tcpdf('px');
+        $this->initFontAndPage($obj);
+
+        $out = $obj->getHTMLCell(
+            '<table cellpadding="3" cellspacing="0">'
+            . '<thead><tr style="background-color:#cccccc"><th>H</th><th>HH</th></tr></thead>'
+            . '<tr style="page-break-before:always"><td>A</td><td>B</td></tr></table>',
+            0,
+            0,
+            100,
+            0,
+        );
+
+        $this->assertGreaterThanOrEqual(2, \substr_count($out, '(H)'));
+
+        // The only rectangles in the output are the header background fills:
+        // two columns on the original page and two on the continuation page.
+        // The replayed header must keep the exact column geometry computed
+        // for the original table (100 user units = 100pt split in half).
+        $matches = [];
+        \preg_match_all('/[0-9.+-]+ [0-9.+-]+ ([0-9.+-]+) [0-9.+-]+ re/', $out, $matches);
+        $rectwidths = $matches[1] ?? [];
+        $this->assertIsArray($rectwidths);
+        $widths = [];
+        foreach ($rectwidths as $rectwidth) {
+            $widths[] = \is_numeric($rectwidth) ? \round((float) $rectwidth, 4) : -1.0;
+        }
+
+        $this->assertSame([50.0, 50.0, 50.0, 50.0], $widths);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellReplaysTableHeadWhenEmbeddedStyleBlockIsPresent(): void
+    {
+        // Regression: an embedded (or external) <style> block makes the CSS map
+        // non-empty, which triggers recomputeHTMLDOMCSSAgainstFinalTree(). That
+        // re-cascade re-runs the table defaults and cleared the serialized
+        // header rows stored on the table node, so the header was no longer
+        // replayed on continuation pages. The stored header must survive the
+        // re-cascade regardless of any unrelated style rules.
+        $obj = new \Com\Tecnick\Pdf\Tcpdf('px');
+        $this->initFontAndPage($obj);
+
+        $out = $obj->getHTMLCell(
+            '<style> .unused { color:red; } </style>'
+            . '<table cellpadding="3" cellspacing="0">'
+            . '<thead><tr style="background-color:#cccccc"><th>H</th><th>HH</th></tr></thead>'
+            . '<tr style="page-break-before:always"><td>A</td><td>B</td></tr></table>',
+            0,
+            0,
+            100,
+            0,
+        );
+
+        // The header must appear twice: once on the original page and once
+        // replayed on the continuation page forced by page-break-before.
+        $this->assertGreaterThanOrEqual(
+            2,
+            \substr_count($out, '(H)'),
+            'Table header must be replayed on continuation pages even when an embedded <style> block is present.',
+        );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testEmbeddedStyleBlockDoesNotAlterAutoTableColumnWidths(): void
+    {
+        // Regression: an embedded <style> block makes the CSS map non-empty,
+        // which triggers the final-tree re-cascade. That pass (1) reclassified
+        // the THEAD row as a body row in the table 'trids', and (2) left the
+        // serialized <cssarray> payload inside each cell's content, which the
+        // auto-layout weighting measured as visible text. Both skewed the
+        // computed column widths. The widths must be independent of any
+        // unrelated embedded style rules.
+        $obj = $this->getInternalTestObject();
+
+        $body =
+            '<table border="1" cellpadding="3" cellspacing="0">'
+            . '<thead><tr style="background-color:#cccccc"><th>#</th><th>Description</th><th>Amount</th></tr></thead>'
+            . '<tr><td>1</td><td>Lorem ipsum dolor sit amet</td><td>10</td></tr>'
+            . '<tr><td>2</td><td>Lorem ipsum dolor sit amet</td><td>20</td></tr>'
+            . '</table>';
+
+        $plain = $this->columnWidthsFromHTML($obj, $body);
+        $styled = $this->columnWidthsFromHTML($obj, '<style> .unused { color:red; } </style>' . $body);
+
+        $this->assertSame(
+            $plain,
+            $styled,
+            'Auto table column widths must not change when an unrelated embedded <style> block is present.',
+        );
+
+        // Pin the baseline so the narrow first column cannot silently collapse
+        // again: weights are the visible-text lengths of the first body row
+        // ("1" / "Lorem ipsum dolor sit amet" / "10") on top of the empty CSS
+        // map floor, distributed across the 360pt available width.
+        $this->assertSame([30.8571, 288.0, 41.1429], $plain);
+    }
+
+    /**
+     * Compute the auto-layout column widths for the first table found in $html.
+     *
+     * @return array<int, float>
+     *
+     * @throws \Throwable
+     */
+    private function columnWidthsFromHTML(TestableHTML $obj, string $html): array
+    {
+        $dom = $obj->exposeGetHTMLDOM($html);
+
+        $tablekey = null;
+        $cols = 0;
+        foreach ($dom as $key => $node) {
+            if ($node['value'] !== 'table') {
+                continue;
+            }
+
+            $tablekey = (int) $key;
+            $cols = (int) $node['cols'];
+            break;
+        }
+
+        $this->assertNotNull($tablekey, 'Expected a table node in the DOM.');
+
+        $widths = $obj->exposeComputeHTMLTableColWidths($dom, $tablekey, $cols, 360.0);
+
+        return \array_map(static fn(float $w): float => \round($w, 4), $widths);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testMeasureHTMLCellDivExplicitHeightReservesSpaceWithoutBackground(): void
+    {
+        // Regression for https://github.com/tecnickcom/tc-lib-pdf/issues/225:
+        // an explicit CSS height on a block element was honored only when the
+        // block also declared its own background or border.
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        $plain = $obj->exposeMeasureHTMLCellRenderedHeight('<div>x</div>', 0.0, 0.0, 100.0, 0.0);
+        $fixed = $obj->exposeMeasureHTMLCellRenderedHeight('<div style="height:50mm">x</div>', 0.0, 0.0, 100.0, 0.0);
+
+        $this->assertGreaterThan(0.0, $plain);
+        $this->assertGreaterThan($plain, $fixed);
+        $this->assertGreaterThanOrEqual(
+            50.0 - 0.001,
+            $fixed,
+            'A block with an explicit CSS height but no background/border must reserve at least that height.',
+        );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellPaintsDivBackgroundBehindTextInsideTableCell(): void
+    {
+        // Regression for https://github.com/tecnickcom/tc-lib-pdf/issues/225:
+        // the background of a styled DIV inside a table cell was emitted after
+        // the already-captured cell text, covering it.
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $out = $obj->getHTMLCell(
+            '<table cellpadding="3" cellspacing="0"><tr>'
+            . '<td><div style="color:blue; background-color:yellow; height:30mm;">Z</div></td>'
+            . '</tr></table>',
+            0,
+            0,
+            100,
+            0,
+        );
+
+        $fillpos = \strpos($out, '1.000000 1.000000 0.000000 rg');
+        $textpos = \strpos($out, '(Z)');
+        $this->assertNotFalse($fillpos, 'The yellow DIV background fill must be present in the output.');
+        $this->assertNotFalse($textpos, 'The DIV text content must be present in the output.');
+        $this->assertLessThan(
+            $textpos,
+            $fillpos,
+            'The DIV background fill must be painted before (behind) its text content.',
+        );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testEstimateHTMLTableRowHeightAccountsForNestedDivExplicitHeight(): void
+    {
+        // Regression for https://github.com/tecnickcom/tc-lib-pdf/issues/225:
+        // row-height estimation ignored the explicit CSS height of block
+        // elements nested in the cells, so rows containing fixed-height DIVs
+        // started near the page bottom and were split across pages.
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        $dom = $obj->exposeGetHTMLDOM('<table><tr><td><div style="height:60mm">x</div></td></tr></table>');
+        $trkey = -1;
+        foreach ($dom as $key => $elm) {
+            if (!$elm['tag'] || !$elm['opening'] || $elm['value'] !== 'tr') {
+                continue;
+            }
+
+            $trkey = $key;
+            break;
+        }
+
+        $this->assertGreaterThan(0, $trkey);
+        $rowheight = $obj->exposeEstimateHTMLTableRowHeightWithDom($dom, $trkey);
+        $this->assertGreaterThanOrEqual(
+            60.0 - 0.001,
+            $rowheight,
+            'Row height estimation must account for the explicit CSS height of nested block elements.',
+        );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLDOMDoesNotLeakEmptyPseudoClassStylesToSiblings(): void
+    {
+        // The streaming DOM pass evaluates :empty before children are parsed,
+        // so every <p> initially matches; the final-tree recompute pass must
+        // clear the stale style-derived height from the non-empty siblings.
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        $dom = $obj->exposeGetHTMLDOM(
+            '<style>p:empty { height: 25mm; background-color: #ffee00; }</style>'
+            . '<div><p></p><p class="plain">plain one</p><p class="plain">plain two</p></div>',
+        );
+
+        $heights = [];
+        foreach ($dom as $elm) {
+            if (!$elm['tag'] || !$elm['opening'] || $elm['value'] !== 'p') {
+                continue;
+            }
+
+            $heights[] = $elm['height'];
+        }
+
+        $this->assertCount(3, $heights);
+        $this->assertEqualsWithDelta(25.0, $heights[0] ?? 0.0, 0.01, 'The empty <p> must keep its :empty height.');
+        $this->assertSame(0.0, $heights[1] ?? -1.0, 'Non-empty siblings must not inherit the :empty height.');
+        $this->assertSame(0.0, $heights[2] ?? -1.0, 'Non-empty siblings must not inherit the :empty height.');
     }
 
     /**
@@ -16321,6 +17150,88 @@ class HTMLTest extends TestUtil
     }
 
     /**
+     * Regression: a justified inline run that wraps over several visual lines
+     * must not over-stretch the word gaps on a continuation line.
+     *
+     * A wide inline image followed by mixed bold fragments used to drive one
+     * wrapped line into a runaway word-spacing: the per-line spacing was first
+     * estimated from the greedy (zero-spacing) fill, then the line was
+     * re-measured with that spacing applied. Subtracting the spacing again
+     * shrank the line capacity, dropped several words onto the next line and
+     * inflated the spacing - leaving a heavily under-packed line whose few words
+     * were spread across the full width with gaps many times the natural space.
+     *
+     * The word spacing must now stay a small fraction of the natural space width
+     * on every wrapped line.
+     *
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellJustifyWrappedInlineRunDoesNotOverstretchWordGaps(): void
+    {
+        $obj = $this->getBBoxProbeTestObject();
+        $this->initFontAndPage($obj);
+
+        $logo = \realpath(__DIR__ . '/../examples/images/tcpdf_logo.jpg');
+        $this->assertNotFalse($logo);
+
+        $html =
+            '<div><span style="text-align:justify;">'
+            . 'a <u>abc</u> abcdefghijkl (abcdef) abcdefg <b>abcdefghi</b> a ((abc)) abcd '
+            . '<img src="'
+            . $logo
+            . '" alt="TCPDF logo" width="89" height="30" border="0" /> '
+            . 'abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg <b>abcdefghi</b> '
+            . 'a abc abcd abcdef abcdefg <b>abcdefghi</b> a <u>abc</u> abcd abcdef abcdefg <b>abcdefghi</b> '
+            . 'a abc \(abcd\) abcdef abcdefg <b>abcdefghi</b> a abc \\\(abcd\\\) abcdef abcdefg <b>abcdefghi</b> '
+            . 'a abc abcd abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg <b>abcdefghi</b> '
+            . 'a abc abcd abcdef abcdefg abcdefghi a abc abcd '
+            . '<a href="https://tcpdf.org">abcdef abcdefg</a> start a abc before '
+            . '<span style="background-color:yellow">yellow color</span> after '
+            . 'a abc abcd abcdef abcdefg abcdefghi a abc abcd end abcdefg abcdefghi '
+            . 'a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi '
+            . 'a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi '
+            . 'a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi '
+            . 'a abc abcd abcdef abcdefg abcdefghi'
+            . '<br />abcd abcdef abcdefg abcdefghi<br />abcd abcde abcdef'
+            . '</span></div>';
+
+        $out = $obj->getHTMLCell($html, 20.0, 10.0, 180.0, 0.0);
+        $this->assertNotSame('', $out);
+
+        // The natural width of a single space; justification adds the Tw
+        // word-spacing on top of it. A correctly packed justified line only needs
+        // a small fraction of the natural space, never a large multiple of it.
+        $naturalSpace = $obj->toPoints($obj->exposeGetStringWidth(' '));
+        $this->assertGreaterThan(0.0, $naturalSpace);
+
+        $matches = [];
+        \preg_match_all('/(-?\d+(?:\.\d+)?) Tw/', $out, $matches, \PREG_SET_ORDER);
+        $wordSpacings = [];
+        foreach ($matches as $match) {
+            if (!isset($match[1]) || !\is_numeric($match[1])) {
+                continue;
+            }
+
+            $wordSpacings[] = (float) $match[1];
+        }
+
+        $this->assertNotSame([], $wordSpacings);
+
+        $positive = \array_filter($wordSpacings, static fn(float $tw): bool => $tw > 1e-4);
+        $this->assertNotSame([], $positive, 'Justified wrapped lines must use positive word spacing.');
+
+        // Before the fix a continuation line reached ~5.2x the natural space; every
+        // line now stays below 1x. Bound at 3x to catch the runaway while
+        // tolerating legitimate per-line variation.
+        $maxWordSpacing = \max($wordSpacings);
+        $this->assertLessThan(
+            3.0 * $naturalSpace,
+            $maxWordSpacing,
+            'A wrapped justified line over-stretched its word gaps (under-packed line).',
+        );
+    }
+
+    /**
      * @throws \Throwable
      */
     public function testGetHTMLCellRightAlignedMixedInlineLinesReachRightEdge(): void
@@ -17571,6 +18482,57 @@ class HTMLTest extends TestUtil
     }
 
     /**
+     * Regression test: font family names ending in style-suffix letters
+     * ('b', 'i', 'u', 'd', 'o') must not be truncated when deriving the
+     * HTML base font name. For example "dejavusanscondensed" was returned
+     * as "dejavusanscondense" because the trailing 'd' was treated as the
+     * strikeout style suffix, even though it is part of the family name.
+     *
+     * @throws \Throwable
+     */
+    public function testHtmlBaseFontNamePreservesFamilyNamesEndingInStyleLetters(): void
+    {
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        $fontfile = (string) \realpath(__DIR__
+        . '/../vendor/tecnickcom/tc-lib-pdf-font/target/fonts/dejavu/dejavusanscondensed.json');
+        $obj->font->insert($obj->pon, 'dejavusanscondensed', '', 12, null, null, $fontfile);
+
+        $this->assertSame('dejavusanscondensed', $obj->exposeGetHTMLBaseFontName());
+
+        // The uppercase 'B'/'I' font-key style suffix must still be stripped.
+        $fontfileb = (string) \realpath(__DIR__
+        . '/../vendor/tecnickcom/tc-lib-pdf-font/target/fonts/dejavu/dejavusanscondensedb.json');
+        $obj->font->insert($obj->pon, 'dejavusanscondensed', 'B', 12, null, null, $fontfileb);
+
+        $this->assertSame('dejavusanscondensedB', $obj->font->getCurrentFontKey());
+        $this->assertSame('dejavusanscondensed', $obj->exposeGetHTMLBaseFontName());
+
+        // getHTMLFontMetric() must not truncate the family name either,
+        // even when a strikeout (D) style is requested.
+        $obj->exposeInitHTMLCellContext(0.0, 0.0, 80.0, 0.0);
+        $dom = [
+            $this->makeHtmlNode([
+                'tag' => false,
+                'opening' => false,
+                'value' => 'Alpha',
+                'fontname' => 'dejavusanscondensed',
+                'fontstyle' => 'D',
+                'fontsize' => 12.0,
+            ]),
+        ];
+        $metric = $obj->exposeGetHTMLFontMetricWithDom($dom, 0);
+        $this->assertSame('dejavusanscondensed', $metric['key'] ?? null);
+
+        // Rendering HTML captures and restores the caller font state:
+        // captureHTMLCallerFontState() must not truncate the family name.
+        $obj->font->insert($obj->pon, 'dejavusanscondensed', '', 12);
+        $obj->getHTMLCell('<p>Plain <b>bold</b> <s>strike</s></p>', 10.0, 10.0, 100.0, 0.0);
+        $this->assertSame('dejavusanscondensed', $obj->font->getCurrentFontKey());
+    }
+
+    /**
      * @throws \Throwable
      */
     public function testCssLineHeightAbsoluteAndRelativeValuesUseFontSizeSemantics(): void
@@ -18519,5 +19481,284 @@ class HTMLTest extends TestUtil
             $lblEntry['bbox_x'],
             '"Lbl" must not overlap the preceding plain-text fragment — em-dash width regression',
         );
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testStripHTMLFontKeyStyleSuffix(): void
+    {
+        $obj = $this->getInternalTestObject();
+
+        // The uppercase 'B' (bold) and/or 'I' (italic) suffix is stripped.
+        $this->assertSame('helvetica', $obj->exposeStripHTMLFontKeyStyleSuffix('helveticaB'));
+        $this->assertSame('helvetica', $obj->exposeStripHTMLFontKeyStyleSuffix('helveticaI'));
+        $this->assertSame('helvetica', $obj->exposeStripHTMLFontKeyStyleSuffix('helveticaBI'));
+
+        // Any run of trailing style letters is removed, so style suffixes
+        // accumulated by repeated captures do not survive.
+        $this->assertSame('helvetica', $obj->exposeStripHTMLFontKeyStyleSuffix('helveticaBIB'));
+        $this->assertSame('helvetica', $obj->exposeStripHTMLFontKeyStyleSuffix('helveticaIBBI'));
+
+        // Lowercase trailing letters are part of the family name: they must
+        // be preserved, including 'b', 'i', 'u', 'd' and 'o'.
+        $this->assertSame('helveticab', $obj->exposeStripHTMLFontKeyStyleSuffix('helveticab'));
+        $this->assertSame('dejavusanscondensed', $obj->exposeStripHTMLFontKeyStyleSuffix('dejavusanscondensed'));
+        $this->assertSame('courierbi', $obj->exposeStripHTMLFontKeyStyleSuffix('courierbi'));
+
+        // A bare style suffix or an empty key strips to the empty string.
+        $this->assertSame('', $obj->exposeStripHTMLFontKeyStyleSuffix('BI'));
+        $this->assertSame('', $obj->exposeStripHTMLFontKeyStyleSuffix(''));
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testNewHTMLRenderContext(): void
+    {
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        $dom = $obj->exposeGetHTMLDOM('<p>hello</p>');
+        $hrc = $obj->exposeNewHTMLRenderContext($dom);
+
+        $this->assertSame($dom, $hrc['dom']);
+        $this->assertSame(0.0, $hrc['cellctx']['originx']);
+        $this->assertSame(0.0, $hrc['cellctx']['originy']);
+        $this->assertSame(0.0, $hrc['cellctx']['maxwidth']);
+        $this->assertSame(0.0, $hrc['cellctx']['maxheight']);
+        $this->assertSame('', $hrc['cellctx']['basefont']);
+        $this->assertSame([], $hrc['fontcache']);
+        $this->assertSame([], $hrc['liststack']);
+        $this->assertSame([], $hrc['tablestack']);
+        $this->assertSame([], $hrc['bcellctx']);
+        $this->assertSame([], $hrc['blockbuf']);
+        $this->assertSame([], $hrc['linkstack']);
+        $this->assertSame([], $hrc['listack']);
+        $this->assertSame(0, $hrc['prelevel']);
+        $this->assertSame(0, $hrc['quotelevel']);
+        $this->assertArrayNotHasKey('currentkey', $hrc);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellContentBoxWithExplicitSize(): void
+    {
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        // Margins and paddings are expressed in internal points.
+        $cellctx = [
+            'margin' => ['T' => 2.0, 'R' => 3.0, 'B' => 4.0, 'L' => 5.0],
+            'padding' => ['T' => 1.0, 'R' => 2.0, 'B' => 3.0, 'L' => 4.0],
+            'borderpos' => 0.0,
+        ];
+
+        $cbox = $obj->exposeGetHTMLCellContentBox(10.0, 20.0, 100.0, 50.0, $cellctx);
+
+        $this->assertSame(100.0, $cbox['cellwidth']);
+        $this->bcAssertEqualsWithDelta($obj->toUnit(2.0 + 4.0 + 1.0 + 3.0), $cbox['offseth'], 0.000001);
+        $this->bcAssertEqualsWithDelta(10.0 + $obj->toUnit(5.0 + 4.0), $cbox['contentx'], 0.000001);
+        $this->bcAssertEqualsWithDelta(20.0 + $obj->toUnit(2.0 + 1.0), $cbox['contenty'], 0.000001);
+        $this->bcAssertEqualsWithDelta(100.0 - $obj->toUnit(5.0 + 3.0 + 4.0 + 2.0), $cbox['contentw'], 0.000001);
+        $this->bcAssertEqualsWithDelta(50.0 - $obj->toUnit(2.0 + 4.0 + 1.0 + 3.0), $cbox['contenth'], 0.000001);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellContentBoxAutoWidthAndHeight(): void
+    {
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        $cellctx = [
+            'margin' => ['T' => 0.0, 'R' => 0.0, 'B' => 0.0, 'L' => 0.0],
+            'padding' => ['T' => 2.0, 'R' => 2.0, 'B' => 2.0, 'L' => 2.0],
+            'borderpos' => 0.0,
+        ];
+
+        $cbox = $obj->exposeGetHTMLCellContentBox(10.0, 20.0, 0.0, 0.0, $cellctx);
+
+        // Width not positive: fall back to the maximum available width.
+        $this->assertGreaterThan(0.0, $cbox['cellwidth']);
+        $this->bcAssertEqualsWithDelta($cbox['cellwidth'] - $obj->toUnit(4.0), $cbox['contentw'], 0.000001);
+        // Height not positive: automatic (no fixed content height).
+        $this->assertSame(0.0, $cbox['contenth']);
+        $this->bcAssertEqualsWithDelta(10.0 + $obj->toUnit(2.0), $cbox['contentx'], 0.000001);
+        $this->bcAssertEqualsWithDelta(20.0 + $obj->toUnit(2.0), $cbox['contenty'], 0.000001);
+    }
+
+    /**
+     * @throws \Throwable
+     */
+    public function testGetHTMLCellContentBoxClampsContentSize(): void
+    {
+        $obj = $this->getInternalTestObject();
+        $this->initFontAndPage($obj);
+
+        // Paddings larger than the cell box must clamp the content size to zero.
+        $cellctx = [
+            'margin' => ['T' => 0.0, 'R' => 0.0, 'B' => 0.0, 'L' => 0.0],
+            'padding' => ['T' => 50.0, 'R' => 50.0, 'B' => 50.0, 'L' => 50.0],
+            'borderpos' => 0.0,
+        ];
+
+        $cbox = $obj->exposeGetHTMLCellContentBox(0.0, 0.0, 1.0, 1.0, $cellctx);
+
+        $this->assertSame(1.0, $cbox['cellwidth']);
+        $this->assertSame(0.0, $cbox['contentw']);
+        $this->assertSame(0.0, $cbox['contenth']);
+    }
+
+    /**
+     * Regression: an opaque table-cell border (e.g. "border-bottom:1px solid
+     * red") must be stroked at full opacity even when the same cell uses a
+     * translucent RGBA text color. Previously the border inherited the text's
+     * alpha (0.4) because the stroke did not reset the graphics-state alpha.
+     *
+     * @throws \Throwable
+     */
+    public function testHTMLTableCellBorderIgnoresTranslucentTextAlpha(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $html =
+            '<table border="1" cellpadding="3" cellspacing="0">'
+            . '<tr>'
+            . '<td style="border-bottom:1px solid red;">A</td>'
+            . '<td style="color:rgba(0,170,255,0.4);border-bottom:1px solid red;">B</td>'
+            . '</tr>'
+            . '</table>';
+
+        $frag = $obj->getHTMLCell($html, 0, 0, 80, 30);
+        $this->assertNotSame('', $frag);
+
+        // The alpha ExtGState (/GSn gs) most recently activated before $needle.
+        $lastAlphaBefore = static function (string $needle) use ($frag): ?string {
+            $pos = \strpos($frag, $needle);
+            if ($pos === false) {
+                return null;
+            }
+
+            $matches = [];
+            \preg_match_all('~/GS\d+ gs~', \substr($frag, 0, $pos), $matches);
+            $found = $matches[0] ?? [];
+
+            return $found === [] ? null : \end($found);
+        };
+
+        // The opaque cell text and the translucent RGBA cell text run under
+        // distinct alpha states, so the leak (if any) is observable.
+        $opaqueGs = $lastAlphaBefore('(A) Tj');
+        $translucentGs = $lastAlphaBefore('(B) Tj');
+        $this->assertNotNull($opaqueGs);
+        $this->assertNotNull($translucentGs);
+        $this->assertNotSame($opaqueGs, $translucentGs);
+
+        // Every red border stroke must be drawn under the opaque alpha state,
+        // never the translucent one carried over from the RGBA text color.
+        $redStroke = '1.000000 0.000000 0.000000 RG';
+        $offset = 0;
+        $strokes = 0;
+        while (($pos = \strpos($frag, $redStroke, $offset)) !== false) {
+            ++$strokes;
+            $matches = [];
+            \preg_match_all('~/GS\d+ gs~', \substr($frag, 0, $pos), $matches);
+            $found = $matches[0] ?? [];
+            $this->assertNotSame([], $found, 'Border stroke is missing an alpha reset.');
+            $activeGs = (string) \end($found);
+            $this->assertSame($opaqueGs, $activeGs);
+            $this->assertNotSame($translucentGs, $activeGs);
+            $offset = $pos + \strlen($redStroke);
+        }
+
+        $this->assertGreaterThanOrEqual(2, $strokes);
+    }
+
+    /**
+     * Text using a translucent RGBA color activates an alpha < 1 ExtGState.
+     * The cell must restore an opaque alpha at the end so the transparency
+     * does not leak into operations appended afterwards (e.g. raw graph
+     * primitives that do not reset the graphics-state alpha themselves).
+     *
+     * @throws \Throwable
+     */
+    public function testHTMLCellRestoresOpaqueAlphaAfterTranslucentText(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $cell = $obj->getHTMLCell('<span style="color:rgba(255,0,0,0.5);">TEST</span>', 0, 0, 80, 20);
+        $this->assertNotSame('', $cell);
+
+        // The alpha ExtGState (/GSn gs) commands emitted while rendering the cell.
+        $matches = [];
+        \preg_match_all('~/GS\d+ gs~', $cell, $matches);
+        $cellGs = $matches[0] ?? [];
+
+        // At least the translucent text alpha and the trailing opaque reset.
+        $this->assertGreaterThanOrEqual(2, \count($cellGs));
+        $translucentGs = $cellGs[0] ?? '';
+        $resetGs = $cellGs === [] ? '' : \end($cellGs);
+        $this->assertNotSame($translucentGs, $resetGs);
+
+        // A raw graph line drawn right after the cell does not manage alpha on
+        // its own, so it must inherit the opaque reset, never the translucent
+        // state carried over from the RGBA text color.
+        $line = $obj->graph->getLine(0, 10, 80, 10, ['lineWidth' => 1, 'lineColor' => 'rgb(255,0,0)']);
+        $frag = $cell . $line;
+
+        $redStroke = '1.000000 0.000000 0.000000 RG';
+        $pos = \strpos($frag, $redStroke);
+        $this->assertNotFalse($pos);
+
+        $before = [];
+        \preg_match_all('~/GS\d+ gs~', \substr($frag, 0, (int) $pos), $before);
+        $found = $before[0] ?? [];
+        $activeGs = $found === [] ? null : \end($found);
+        $this->assertSame($resetGs, $activeGs);
+        $this->assertNotSame($translucentGs, $activeGs);
+    }
+
+    /** @throws \Throwable */
+    public function testGetHTMLCellAppliesCssFontStretchAndLetterSpacing(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        $out = $obj->getHTMLCell('<span style="font-stretch:90%;letter-spacing:-0.254mm;">LEFT</span>', 10, 20, 120, 0);
+
+        // CSS font-stretch:90% must reach the page as a 90% Tz; before the fix the
+        // HTML engine never forwarded stretching to font->insert() so it was dropped.
+        $this->assertStringContainsString('90.000000 Tz', $out);
+
+        // CSS letter-spacing must reach the page as a non-zero, negative Tc.
+        $this->assertMatchesRegularExpression('/-\d+\.\d+ Tc/', $out);
+    }
+
+    /** @throws \Throwable */
+    public function testGetHTMLCellRestoresStretchedAndSpacedCallerFontState(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFontAndPage($obj);
+
+        /** @var \Com\Tecnick\Pdf\Font\Stack $font */
+        $font = $this->getObjectProperty($obj, 'font');
+        /** @var int $pon */
+        $pon = $this->getObjectProperty($obj, 'pon');
+
+        // Caller font carries non-neutral spacing (0.5pt) and stretching (0.8 ratio).
+        $font->insert($pon, 'helvetica', '', 12, 0.5, 0.8);
+
+        $obj->getHTMLCell('<p>Hello <b>bold</b></p>', 10, 20, 120, 0);
+
+        // After the HTML cell, the caller font is restored with its spacing and
+        // stretching, not silently reset to 0/1.0.
+        $after = $font->getCurrentFont();
+        $this->assertEqualsWithDelta(0.8, $after['stretching'], 1e-9);
+        $this->assertEqualsWithDelta(0.5, $after['spacing'], 1e-9);
     }
 }

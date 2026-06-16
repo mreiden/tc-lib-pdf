@@ -16,6 +16,9 @@
 
 namespace Test;
 
+/**
+ * @phpstan-import-type TTextDims from \Com\Tecnick\Pdf\Font\Stack
+ */
 class TextTest extends TestUtil
 {
     public static function setUpBeforeClass(): void
@@ -293,6 +296,49 @@ class TextTest extends TestUtil
 
         $this->assertNotSame('', $line);
         $this->assertNotSame('', $cell);
+    }
+
+    /** @throws \Throwable */
+    private function textCellHeight(\Com\Tecnick\Pdf\Tcpdf $obj, string $txt): float
+    {
+        $obj->getTextCell($txt, 10, 20, 60, 0, 0, 0, 'T', 'L');
+
+        return $obj->getLastTextBBox()['h'];
+    }
+
+    /**
+     * Regression: a blank line inside a multi-line text cell must occupy a full
+     * line of vertical space. An empty line renders no glyphs, so getLastBBox()
+     * used to return the stale box of the previously rendered line and the blank
+     * line collapsed (the following line jumped up to overlap it). outTextLines()
+     * now synthesises a zero-width box at the blank line's own position so the
+     * text bounding box grows by one line height per blank line.
+     *
+     * @throws \Throwable
+     */
+    public function testGetTextCellBlankLinesOccupyFullLineHeight(): void
+    {
+        $obj = $this->getTestObject();
+        $this->initFont($obj);
+        $obj->addPage();
+
+        $oneLine = $this->textCellHeight($obj, 'A');
+        $twoLines = $this->textCellHeight($obj, "A\nB");
+        $threeLines = $this->textCellHeight($obj, "A\nC\nB");
+        $blankMiddle = $this->textCellHeight($obj, "A\n\nB");
+        $twoBlanks = $this->textCellHeight($obj, "A\n\n\nB");
+
+        // Each additional rendered line adds one constant line height.
+        $lineHeight = $twoLines - $oneLine;
+        $this->assertGreaterThan(0.0, $lineHeight);
+
+        // A blank middle line counts as a full line: "A\n\nB" spans three lines,
+        // exactly like "A\nC\nB". Before the fix it collapsed to two lines.
+        $this->assertEqualsWithDelta($threeLines, $blankMiddle, 1.0e-6);
+        $this->assertGreaterThan($twoLines, $blankMiddle);
+
+        // Two consecutive blank lines add two full line heights.
+        $this->assertEqualsWithDelta($twoLines + (2.0 * $lineHeight), $twoBlanks, 1.0e-6);
     }
 
     /** @throws \Throwable */
@@ -2405,5 +2451,119 @@ class TextTest extends TestUtil
         /** @var array<int, array{x: float, y: float, w: float, h: float}> $cellBoxes */
         $cellBoxes = $this->getObjectProperty($obj, 'cellbbox');
         $this->assertGreaterThan(1, \count($cellBoxes));
+    }
+
+    /** @throws \Throwable */
+    public function testGetOutTextStateOperatorTzEmitsPercentageFromStretchRatio(): void
+    {
+        $obj = $this->getInternalTestObject();
+
+        // Stretching is a ratio (1.0 == 100%): ratio 1.0 emits no Tz.
+        $this->assertSame('raw', $obj->exposeGetOutTextStateOperatorTz('raw', 1.0));
+
+        // The PDF Tz operator is a percentage, so the ratio is multiplied by 100.
+        $compressed = $obj->exposeGetOutTextStateOperatorTz('raw', 0.9);
+        $this->assertStringContainsString('90.000000 Tz', $compressed);
+        $this->assertStringContainsString('raw 100 Tz', $compressed);
+
+        $this->assertStringContainsString('200.000000 Tz', $obj->exposeGetOutTextStateOperatorTz('raw', 2.0));
+    }
+
+    /** @throws \Throwable */
+    public function testGetOutTextStateOperatorTcUsesPointsWithSign(): void
+    {
+        $obj = $this->getInternalTestObject();
+
+        // Spacing is in points: 0 emits no Tc.
+        $this->assertSame('raw', $obj->exposeGetOutTextStateOperatorTc('raw', 0.0));
+
+        $positive = $obj->exposeGetOutTextStateOperatorTc('raw', 0.72);
+        $this->assertStringContainsString('0.720000 Tc', $positive);
+        $this->assertStringContainsString('raw 0 Tc', $positive);
+
+        // Negative tracking must round-trip with its sign preserved.
+        $this->assertStringContainsString('-0.720000 Tc', $obj->exposeGetOutTextStateOperatorTc('raw', -0.72));
+    }
+
+    /** @throws \Throwable */
+    public function testStretchingRatioScalesLayoutWidthAndEmittedTz(): void
+    {
+        $obj = $this->getTestObject();
+        /** @var \Com\Tecnick\Pdf\Font\Stack $font */
+        $font = $this->getObjectProperty($obj, 'font');
+        /** @var int $pon */
+        $pon = $this->getObjectProperty($obj, 'pon');
+        $fontfile = (string) \realpath(__DIR__
+        . '/../vendor/tecnickcom/tc-lib-pdf-font/target/fonts/core/helvetica.json');
+
+        $font->insert($pon, 'helvetica', '', 11, 0.0, 1.0, $fontfile);
+        $obj->addPage();
+        $ordarr = \array_values($obj->uniconv->strToOrdArr('LEFT'));
+        $widthNeutral = $font->getOrdArrWidth($ordarr);
+
+        $font->insert($pon, 'helvetica', '', 11, 0.0, 0.9, $fontfile);
+        $widthStretched = $font->getOrdArrWidth($ordarr);
+
+        // Layout width tracks the ratio (90% of the unstretched width) ...
+        $this->assertEqualsWithDelta($widthNeutral * 0.9, $widthStretched, 0.001);
+
+        // ... and the rendered line emits the matching 90% Tz (not 0.9).
+        $line = $obj->getTextLine(txt: 'LEFT', posx: 10, posy: 20);
+        $this->assertStringContainsString('90.000000 Tz', $line);
+    }
+
+    /** @throws \Throwable */
+    public function testGetJustifiedStringDividesWordSpacingByStretchRatio(): void
+    {
+        $width = 100.0;
+        $txt = 'a b c';
+        $dim = [
+            'chars' => 5,
+            'spaces' => 2,
+            'totwidth' => 50.0,
+            'totspacewidth' => 10.0,
+            'words' => 3,
+            'split' => [],
+        ];
+
+        $neutral = $this->justifyWordSpacing($txt, $dim, $width, 1.0);
+        $stretched = $this->justifyWordSpacing($txt, $dim, $width, 1.1);
+
+        // Tw is multiplied by the horizontal scale at render time, so the emitted
+        // word spacing must be the neutral value divided by the stretching ratio.
+        $this->assertEqualsWithDelta($neutral / 1.1, $stretched, 0.0001);
+    }
+
+    /**
+     * Build a justified single line at the given stretching ratio (forcing the
+     * Tw word-spacing path with a non-unicode core font) and return the emitted
+     * Tw value in points.
+     *
+     * @param TTextDims $dim
+     *
+     * @throws \Throwable
+     */
+    private function justifyWordSpacing(string $txt, array $dim, float $width, float $stretching): float
+    {
+        $obj = new TestableText(isunicode: false);
+        /** @var \Com\Tecnick\Pdf\Font\Stack $font */
+        $font = $this->getObjectProperty($obj, 'font');
+        /** @var int $pon */
+        $pon = $this->getObjectProperty($obj, 'pon');
+        $fontfile = (string) \realpath(__DIR__
+        . '/../vendor/tecnickcom/tc-lib-pdf-font/target/fonts/core/helvetica.json');
+        $font->insert($pon, 'helvetica', '', 12, 0.0, $stretching, $fontfile);
+
+        $ordarr = $obj->exposeStrToOrdArr($txt);
+        $out = $obj->exposeGetJustifiedString($txt, $ordarr, $dim, $width);
+
+        $matches = [];
+        if (\preg_match('/(-?\d+\.\d+) Tw/', $out, $matches) !== 1) {
+            $this->fail('Expected a Tw word-spacing operator, got: ' . $out);
+        }
+
+        $value = $matches[1] ?? '0';
+
+        return \is_numeric($value) ? (float) $value : 0.0;
     }
 }

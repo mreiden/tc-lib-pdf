@@ -409,7 +409,10 @@ $htmlt1 = 'Default <font face="courier">Courier <font face="helvetica">Helvetica
 $htmlt2 = '<small>small text</small> normal <small>small text</small> normal <sub>subscript</sub> normal <sup>superscript</sup> normal';
 $htmlt3 = '<font size="10" color="#ff7f50">The</font> <font size="10" color="#6495ed">quick</font> <font size="14" color="#dc143c">brown</font> <font size="18" color="#008000">fox</font> <font size="22"><a href="https://tcpdf.org">jumps</a></font> <font size="22" color="#a0522d">over</font> <font size="18" color="#da70d6">the</font> <font size="14" color="#9400d3">lazy</font> <font size="10" color="#4169ef">dog</font>.';
 
-$html_03 .= '<br />' . $htmlt1 . '<br />' . $htmlt2 . '<br />' . $htmlt3 . '<br />' . $htmlt3 . '<br />' . $htmlt2;
+$html_03 .=
+    '<br />' . $htmlt1 . '<br />' . $htmlt2 . '<br />' . $htmlt3 . '<br />' . $htmlt3 . '<br />' . $htmlt2 . '<br />';
+
+$html_03 .= '<div><span style="font-size:8pt; line-height:110%;">#<span style="font-size:18pt">1</span>a</span></div>';
 
 $html_03 .= <<<EOF
     <hr />
@@ -476,7 +479,9 @@ Quebec Romeo</div>
 <br />
 <div style="text-align:center;">CENTER: Alfa <i>Bravo</i> Charlie <i>Delta</i> Echo <img src="images/tcpdf_logo.jpg" alt="TCPDF logo" width="89" height="30" border="0" /><img src="images/tcpdf_box.svg" alt="TCPDF box" width="100" height="67" border="0" /> <i>Foxtrot</i> Golf <i>Hotel</i> India <i>Juliett</i> Kilo <i>Lima</i> Mike <i>November</i> Oscar <i>Papa</i> Quebec <i>Romeo</i> Sierra <i>Tango</i> Uniform <i>Victor</i> Whiskey <i>Xray</i> Yankee <i>Zulu</i></div>
 <br />
-<div style="text-align:right;">RIGHT: Alfa <i>Bravo</i> Charlie <i>Delta</i> Echo <img src="images/tcpdf_logo.jpg" alt="TCPDF logo" width="89" height="30" border="0" /><img src="images/tcpdf_box.svg" alt="TCPDF box" width="100" height="67" border="0" /> <i>Foxtrot</i> Golf <i>Hotel</i> India <i>Juliett</i> Kilo <i>Lima</i> Mike <i>November</i> Oscar <i>Papa</i> Quebec <i>Romeo</i> Sierra <i>Tango</i> Uniform <i>Victor</i> Whiskey <i>Xray</i> Yankee <i>Zulu</i></div>';
+<div style="text-align:right;">RIGHT: Alfa <i>Bravo</i> Charlie <i>Delta</i> Echo <img src="images/tcpdf_logo.jpg" alt="TCPDF logo" width="89" height="30" border="0" /><img src="images/tcpdf_box.svg" alt="TCPDF box" width="100" height="67" border="0" /> <i>Foxtrot</i> Golf <i>Hotel</i> India <i>Juliett</i> Kilo <i>Lima</i> Mike <i>November</i> Oscar <i>Papa</i> Quebec <i>Romeo</i> Sierra <i>Tango</i> Uniform <i>Victor</i> Whiskey <i>Xray</i> Yankee <i>Zulu</i></div>
+<br /><hr />
+<div><span style="text-align:justify;">a <u>abc</u> abcdefghijkl (abcdef) abcdefg <b>abcdefghi</b> a ((abc)) abcd <img src="images/tcpdf_logo.jpg" alt="TCPDF logo" width="89" height="30" border="0" /> abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg <b>abcdefghi</b> a <u>abc</u> abcd abcdef abcdefg <b>abcdefghi</b> a abc \(abcd\) abcdef abcdefg <b>abcdefghi</b> a abc \\\(abcd\\\) abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg <b>abcdefghi</b> a abc abcd abcdef abcdefg abcdefghi a abc abcd <a href="https://tcpdf.org">abcdef abcdefg</a> start a abc before <span style="background-color:yellow">yellow color</span> after a abc abcd abcdef abcdefg abcdefghi a abc abcd end abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi a abc abcd abcdef abcdefg abcdefghi<br />abcd abcdef abcdefg abcdefghi<br />abcd abcde abcdef</span></div><hr />';
 
 $pdf->addHTMLCell(html: $html_05B, posx: 20, posy: 10, width: 180);
 
